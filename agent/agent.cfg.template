@@ -1,0 +1,9 @@
+#Shelloid agent configurations
+#Fri Aug 15 16:43:25 IST 2014
+client.startingPortNumber=5000
+server.ip=rms.shelloid.com
+server.port=443
+client.useProxy=false
+client.MaxConcurrentMessages=5
+client.logbackFilePath=logback.xml
+client.logFilePath=xxx

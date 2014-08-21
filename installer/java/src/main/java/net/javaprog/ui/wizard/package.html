@@ -1,0 +1,83 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<html>
+<head>
+</head>
+<body>
+<p>Main package. In order to create a new wizard you need to instanciate class Wizard passing an appropriate step model. Furthermore you will want to attach a listener to the wizard model in order to get notified when the wizard is either canceled or completed:</p>
+<pre>   //create wizard model
+   WizardModel model = new DefaultWizardModel(new Step[]{
+       //populate wizard model with custom steps
+       new StartStep(),
+       new DataInputStep(),
+       new FinishStep()
+   });
+   //add listener to wizard model
+   model.addWizardModelListener(...);
+   //instanciate wizard
+   Wizard wizard = new Wizard(model, "My Wizard");
+   //show wizard
+   wizard.pack();
+   wizard.setVisible(true);</pre>
+<p>In order to collect user input data throughout the steps, you should use DataModel and DataLookup:</p>
+<pre>   //create wizard model
+   DataModel data = new DataModel();
+   WizardModel model = new DefaultWizardModel(new Step[]{
+       //populate wizard model with custom steps
+       new StartStep(),
+       new DataInputStep1(data),
+       new DataInputStep2(data),
+       new FinishStep()
+   });
+   //add listener to wizard model
+   model.addWizardModelListener(new Evaluator(data));
+   ...
+
+   class DataInputStep1 extends AbstractStep {
+       protected DataModel data;
+
+       public DataInputStep1(DataModel data) {
+           super("Data Input 1", "Put in data here.");
+           this.data = data;
+       }
+
+       protected JComponent createComponent() {
+           JComponent stepComponent = ...;
+           //register data input source with data model
+           return stepComponent;
+       }
+       ...
+   }
+
+   class Evaluator implements WizardModelListener {
+       protected DataModel data;
+
+       public Evaluator(DataModel data) {
+           this.data = data;
+       }
+
+       public void wizardFinished(WizardModelEvent e) {
+           //evaluate user input data and take action here
+       }
+
+       public void wizardCanceled(WizardModelEvent e) {}
+       public void stepShown(WizardModelEvent e) {}
+       public void wizardModelChanged(WizardModelEvent e) {}
+   }</pre>
+<p>Registering a data input source with a data model is fairly easy:</p>
+<pre>   //input source
+   JTextField inputField = new JTextField();
+   //obtaining data lookup mechanism
+   Method method;
+   try {
+       method = inputField.getClass().getMethod("getText", null);
+   } catch (NoSuchMethodException nsme) {} //does not occur
+   DataLookup lookup = new DefaultDataLookup(inputField, method, null);
+   //register lookup mechanism with data model
+   data.registerDataLookup("myKey", lookup);</pre>
+<p>Looking up data from registered data input sources is easy as well:</p>
+<pre>   public void wizardFinished(WizardModelEvent e) {
+       Object value = data.getData("myKey");
+       //evaluate value and take appropriate action
+   }</pre>
+</body>
+</html>

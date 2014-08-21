@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<configuration>
+    <contextListener class="com.shelloid.soxnet.agent.LoggerStartupListener"/>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>CLI %d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${MY_HOME}/${LOG_FILE}.log</file>
+        <!-- Support multiple-JVM writing to the same log file -->
+        <prudent>true</prudent>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${MY_HOME}/${LOG_FILE}.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>CLI %d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    
+    <root level="WARN">
+        <appender-ref ref="FILE" />
+    </root>
+
+    <logger name="i.n" level="WARN"/>
+    <logger name="ch.qos.logback" level="WARN"/>
+    <logger name="io.netty" level="WARN"/>
+    <logger name="com.shelloid" level="WARN"/>
+</configuration>

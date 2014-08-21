@@ -1,0 +1,210 @@
+1. Port forwarding
+2. File system access
+3. Shell Access.
+4. Remote Desktop
+5. USB Share.
+
+Key soxnet algorithms
+------------------------
+------------------------
+
+Send msg to device from Web server or RMS server
+========================
+1. Server adds msg to app device outbound queue in Redis
+2. For RMS server, if the same server is handling the device's connection 
+then skip steps 3 and 4. Execute step 5 as if NEW MSG is received.
+3. Server gets server corresponding to the device from device-server map.
+4. Server publish NEW MSG(device id) to server's channel
+5. When an RMS server receives NEW MSG(device id) from Redis, 
+if device's queue is empty it picks up msg from queue and sends to device
+
+
+User Opens Port (svc_dev, svc_port, remote_device)
+===========
+1. A request is send to web server
+2. Web Server insert row into port-maps table app and gets port-map-id
+3. Web Server sends OPEN PORT(port-map-id, svc_port) to svc device id.
+4. When RMS server receives PORT OPENED(port-map-id) response msg from device it
+verifies port-map-id and updates the svc-side-status column in port-maps table and sends 
+START_LISTENING(port-map-id) to app device id.
+5. When RMS server receives LISTENING_STARTED(port-map-id, mapped-port) response msg 
+it verifies port-map-id and updates app-side-status and mapped-port
+
+User Closes Port (port-map-id)
+===========
+1. A request is send to web server
+2. verifies port-map-id and fetches svc-device-id, app-device-id
+3. Web Server sends STOP LISTENING(port-map_id) to app device id 
+and CLOSE PORT(port-map-id) to svc device id.
+4. When RMS server receives LISTENING STOPPED(port-map_id)/PORT CLOSED(port-map-id)
+response msg from devices it
+updates the svc-side-status/app-side-status columns in port-maps table
+
+
+The end-to-end tunnel data structures and algorithms
+================================
+Network:
+app -- agent-A --- rms X --- rmx Y --- agent-B --- svc
+
+Agent-side data structures:
+---------------------------
+
+agent-port-map: mapped-port => PortMapInfo{port-map-id} //Populated when START LISTENING(conn-id) is received
+agent-conn-map: conn-id => conn-info(channel, portMapInfo, ptcp, agent-port, pendingWriteBuf, readBuf, is-service-side, last-recvd-ts)
+agent-svc-map: port-map-id => svc-port //Populated when OPEN PORT(conn-id, svc-port) is received
+
+Algorithms:
+===============
+
+app receives START LISTENING(port-map-id)
+------------------------------------
+1. mapped-port = App binds to an available port starting from pref-start-port
+2. Adds an entry to agent-port-map: mapped-port => PortMapInfo(port-map-id)
+3. Sends a LISTENING STARTED(port-map-id) response
+
+app receives OPEN PORT (port-map-id, svc-port)
+------------------------------------
+1. Adds an entry to agent-svc-map: port-map-id => svc-port
+2. Sends a PORT OPENED(port-map-id) response
+
+app connects to agent
+---------------------------
+1. agent gets agent-port from the conn channel; looks up agent-port-map and gets portMapInfo
+2. ptcp = new PTcp(callback), conn-id = port-map-id + agent-port
+3. agent creates conn-info(channel, portMapInfo, ptcp, agent-port, is-service-side=false, last-recv-ts = current time) and adds to agent-conn-map
+4. conn-channel.addAttribute(conn-info)
+5. ptcp.attach(conn-info);
+6. ptcp.connect();
+
+callback.writePacket(data, ptcp)
+----------------------------------
+1. connInfo = ptcp.attachment()
+2. port-map-id = connInfo.portMapInfo.port-map-id, agent-port = connInfo.agent-port
+3. agent sends TUNNEL(port-map-id, agent-port, connInfo.is-service-side, data) as urgent msg to rms-X
+
+app sends data to agent via connection
+-----------------------------------------
+1. agent gets conn-info from channels' attribute
+2. uplinkData(conn-info, data, data.length)
+
+uplinkData(conn-info, data, len)
+-----------------------------
+1. if conn-info.channel == null || conn-info.ptcp.state() == TCP_CLOSED then RETURN
+2. nwritten = conn-info.ptcp.send(data)
+3. if nwritten == len RETURN
+4. if (nwritten == SOCKET_ERROR and conn-info.ptcp.m_error() == EWOULDBLOCK) nwritten = 0;
+5.1 if nwritten < data.length then remove READ from channel's interestOps 
+5.2 else add READ to channel's interestOps 
+6. conn-info.pendingWriteBuf = new byte[data.length - nwritten]
+7. System.arraycopy(data, nwritten, pendingWriteBuf, 0, pendingWriteBuf.length)
+
+callback.onTcpWritable(ptcp)
+------------------------
+1. pendingWrite = ptcp.connInfo.pendingWrite
+2. if pendingWrite != null uplinkData(ptcp.connInfo, pendingWrite.buf, pendingWrite.buf.length)
+
+agent receives TUNNEL(port-map-id, agent-port, is-service-side, ctrl, data) from RMS server
+-------------------------------------------
+1. conn-id = port-map-id + agent-port;
+2. connInfo = Look up conn-id in agent-conn-map
+3. If ctrl == REMOTE-CLOSE then
+3.1 if connInfo != null then connInfo.channel.close()
+3.2 remove connInfo entry from agent-conn-map
+3.3.RETURN
+4.a1 If connInfo == null then //this is svc-side receiving msg for first time
+4.a2  svc-port = agent-svc-map[port-map-id]
+4.a3 channelFuture = netty-bootstrap.connect(svc-port..)
+4.a4 ptcp = new PTCp();
+4.a5 conn-info = new ConnInfo (channelFuture.channel(), new PortMapInfo(port-map-id), ptcp, agent-port, is-service-side=true)
+4.a6 ptcp.attach(connInfo)
+4.a7 add conn-id => conn-info to agent-conn-map
+4.b1 Else
+4.b2 ptcp = connInfo.ptcp
+5.a1 if ptcp.state() == TCP_CLOSED then
+5.a2 send TUNNEL(port-map-id, agent-port, connInfo.is-service-side, REMOTE_CLOSE, null) 
+to RMS server
+5.b1.Else ptcp.notifyPacket(data)
+6. connInfo.last-recvd-ts = current time
+
+callback.onTcpReadable(Ptcp)
+-------------------------------
+1. connInfo = ptcp.attachment()
+2. len = ptcp.recv(connInfo.readBuf);
+3. connInfo.channel.send(connInfo.readBuf).sync() //what if channel is not connected yet (svc-side)? will work? throw exception?
+
+callback.onTcpClosed(ptcp)
+------------------------------
+1. connInfo = ptcp.attachment()
+2. connInfo.channel.close();
+3. connInfo.channel = null;
+
+Note: Whenever trying to read/write to channel check if channel != null.
+If null drop the operation.
+
+On any channel exception
+-----------------------
+1. channel.close()
+2. channel.connInfo.ptcp.close();
+3. channel.connInfo.channel = null;
+
+Set timer every clear-connections interval (15 seconds)
+-------------------
+1. For each connInfo in agent-conn-map
+1.1 if current time - connInfo.last-recv-time > CONN-IDLE-THRESHOLD
+1.2. connInfo.channel.close()
+1.3. remove connInfo entry from agent-conn-map
+
+RMS data structures
+---------------------
+1. my-ip, my-key
+2. servers-list(ip, key)
+3. server-map: ip => channel
+4. Per agent channel data structures:
+4.1 remote-devices: port-map-id => remote-device-id
+5. connected-devices: device-id => channel
+6. device-server-map (used by get-rms-from-device-id): device-id => server-ip
+
+RMS server: on starting
+------------------------
+1. servers = Read servers table(server-ip - PK, key) from DB sorted in descending order
+2. my-ip = this server's IP address
+3. Start listening on tunnel port.
+3. my-ip-idx = index of my-ip in servers, my-key = my-ip's key in servers
+4. for all server-ips above my-ip-idx establish WebSocket connection and send AUTH msg with server-key ON tunnel-port from config file.
+5. If conn request fails retry after a tunnel-port-reconnect-delay (config file)
+
+RMS server: on websocket conn on tunnel port
+-----------------------------------
+1. Verify that remote-ip is in servers list.
+2. channel.authenticated = false
+
+RMS server: on AUTH msg
+------------------------
+1. Verify my-key with received key
+2. channel.authenticated = true
+3. add channel.remote-address => channel in server-map //removed when connection is dropped
+
+Note: if any other message other than AUTH comes on unaunticated channel drop the conn.
+
+RMS server: on TUNNEL msg(port-map-id, is-service-side, agent-port, data) on an agent's channel
+--------------------------------------------------------------
+1. remote-device-id = channel.remote-devices[port-map-id]
+2. if remote-device-id == null 
+2.1 row = query port-map table using port-map-id
+2.2 remote-device-id = if msg.is-service-side then row.svc-device-id  else row.app-device-id
+2.3 add channel.remove-devices entry port-map-id => remote-device-id
+3. target-rms-server = get-rms-from-device-id(remote-device-id)
+4. server-ch = server-map[target-rms-server]
+5. if server-ch != null then send TUNNEL-FORWARD msg(TUNNEL msg, nRetries = 0, remote-device-id) to server-ch else drop msg //will get retransmitted
+
+RMS server: on TUNNEL-FORWARD msg(TUNNEL-msg, nRetries, remote-device-id) from another RMS server on tunnel port's tunnel-channel
+--------------------------------------------------------------
+1. device-ch = remote-devices[remote-device-id]
+2.1 if device-ch == null then TUNNEL-FORWARD-ERROR msg(remote-device-id, nRetries + 1, TUNNEL-msg, reason: wrong-server) to tunnel-channel
+2.2 else send TUNNEL-MSG to device-ch
+
+RMS server: on TUNNEL-FORWARD-ERROR(remote-device-id, nRetries, TUNNEL-msg)
+-----------------------------------------------------
+1. re-read device-server-map entry for remote-device-id
+2.1 if nRetires > MAX drop msg else
+2.2. retry sending to new server
