@@ -381,15 +381,15 @@ public class App {
 
             @Override
             public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-                if (!ShelloidUtil.getInstance().getValByAttributeTypeFromIssuerDN(chain[0].getSubjectDN().toString(), "CN=").endsWith("shelloid.com")) {
-                    throw new CertificateException("Certificate CN is not ending with shelloid.com");
+                if (!ShelloidUtil.getInstance().getValByAttributeTypeFromIssuerDN(chain[0].getSubjectDN().toString(), "CN=").endsWith(Configurations.serverCn)) {
+                    throw new CertificateException("Certificate CN is not ending with " + Configurations.serverCn);
                 }
             }
 
             @Override
             public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-                if (!ShelloidUtil.getInstance().getValByAttributeTypeFromIssuerDN(chain[0].getSubjectDN().toString(), "CN=").endsWith("shelloid.com")) {
-                    throw new CertificateException("Certificate CN is not ending with shelloid.com");
+                if (!ShelloidUtil.getInstance().getValByAttributeTypeFromIssuerDN(chain[0].getSubjectDN().toString(), "CN=").endsWith(Configurations.serverCn)) {
+                    throw new CertificateException("Certificate CN is not ending with " + Configurations.serverCn);
                 }
             }
         };

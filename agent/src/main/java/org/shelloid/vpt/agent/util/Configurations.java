@@ -19,14 +19,22 @@ public class Configurations {
     public static final String WEBSOCKET_PATH = "/websocket";
     public static final int MAX_NO_ROUTE_MSG = 5;
     public static int PING_SEND_INTERVAL = 30;
-    private static final Properties props = new Properties();
+    private static final Properties props;
+    private static final Properties defaultProps = new Properties();
     public static final int CONN_IDLE_THRESHOLD = 5 * 60 * 1000;
     public static int maxConcurrentMessages;
+    public static String serverCn;
+    
+    static {
+        defaultProps.put(ConfigParams.SERVER_CN.toString(), "shelloid.com");
+        props = new Properties(defaultProps);
+    }
 
     public static void loadPropertiesFile() throws Exception {
         InputStream input = new FileInputStream("agent.cfg");
         props.load(input);
         maxConcurrentMessages = Integer.parseInt(get(ConfigParams.MAX_CONCURRENT_MESSAGES));
+        serverCn = get(ConfigParams.SERVER_CN);
     }
 
     public static String get(ConfigParams key) {
@@ -68,7 +76,8 @@ public class Configurations {
         USE_PROXY("client.useProxy"), 
         PRPXY_USERNAME("client.proxy.username"), 
         PRPXY_PASSWORD("client.proxy.password"),
-        LOG_FILE_PATH("client.logFilePath");
+        LOG_FILE_PATH("client.logFilePath"),
+        SERVER_CN("server.cn");
         private final String text;
 
         private ConfigParams(final String text) {
