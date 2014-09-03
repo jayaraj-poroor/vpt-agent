@@ -14,10 +14,10 @@ import io.netty.channel.Channel;
 
 /* @author Harikrishnan */
 public class PortMapInfo {
-    private String portMapId;
+    private Long portMapId;
     private final Channel channel;
     
-    public PortMapInfo(String portMapId, Channel channel) {
+    public PortMapInfo(Long portMapId, Channel channel) {
         this.channel = channel;
         this.portMapId = portMapId;
     }
@@ -26,11 +26,11 @@ public class PortMapInfo {
         return channel;
     }
 
-    public String getPortMapId() {
+    public Long getPortMapId() {
         return portMapId;
     }
 
-    public void setPortMapId(String portMapId) {
+    public void setPortMapId(Long portMapId) {
         this.portMapId = portMapId;
     }
 }

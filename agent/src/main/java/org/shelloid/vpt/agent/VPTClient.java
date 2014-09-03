@@ -9,14 +9,40 @@
  */
 package org.shelloid.vpt.agent;
 
-import com.google.gson.internal.LinkedTreeMap;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
+import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPromise;
+import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.websocketx.BinaryWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.CloseWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.PingWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.PongWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.WebSocketClientHandshaker;
+import io.netty.handler.codec.http.websocketx.WebSocketFrame;
+import io.netty.util.AttributeKey;
+import io.netty.util.CharsetUtil;
+import java.awt.TrayIcon;
+import java.net.InetSocketAddress;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import org.shelloid.common.ICallback;
 import org.shelloid.common.ShelloidUtil;
 import org.shelloid.common.exceptions.ShelloidNonRetriableException;
-import org.shelloid.common.messages.MessageFields;
-import org.shelloid.common.messages.MessageTypes;
 import org.shelloid.common.messages.MessageValues;
-import org.shelloid.common.messages.ShelloidMessage;
+import org.shelloid.common.messages.ShelloidMessageModel.MessageTypes;
+import org.shelloid.common.messages.ShelloidMessageModel.PortMappingInfo;
+import org.shelloid.common.messages.ShelloidMessageModel.ShelloidMessage;
 import org.shelloid.ptcp.HelperFunctions;
 import org.shelloid.ptcp.PseudoTcp;
 import org.shelloid.vpt.agent.common.CallbackMessage;
@@ -25,39 +51,11 @@ import org.shelloid.vpt.agent.common.PortMapInfo;
 import org.shelloid.vpt.agent.util.AgentReliableMessenger;
 import org.shelloid.vpt.agent.util.Configurations;
 import org.shelloid.vpt.agent.util.Platform;
-import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelPromise;
-import io.netty.channel.SimpleChannelInboundHandler;
-import io.netty.handler.codec.http.FullHttpResponse;
-import io.netty.handler.codec.http.websocketx.CloseWebSocketFrame;
-import io.netty.handler.codec.http.websocketx.PingWebSocketFrame;
-import io.netty.handler.codec.http.websocketx.PongWebSocketFrame;
-import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
-import io.netty.handler.codec.http.websocketx.WebSocketClientHandshaker;
-import io.netty.handler.codec.http.websocketx.WebSocketFrame;
-import io.netty.util.AttributeKey;
-import io.netty.util.CharsetUtil;
-import java.awt.TrayIcon;
-import java.net.InetSocketAddress;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Timer;
-import java.util.TimerTask;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /* @author Harikrishnan */
 public class VPTClient extends SimpleChannelInboundHandler<Object> {
 
-    public static final ConcurrentHashMap<String, String> agentSvcMap = new ConcurrentHashMap();
+    public static final ConcurrentHashMap<Long, Integer> agentSvcMap = new ConcurrentHashMap();
     public static final ConcurrentHashMap<Integer, PortMapInfo> agentPortMap = new ConcurrentHashMap();
     public static final ConcurrentHashMap<String, ConnectionInfo> agentConnMap = new ConcurrentHashMap();
     public static final AttributeKey<Boolean> HAS_SENT_REMOTE_CLOSE = AttributeKey.valueOf("HAS_SENT_REMOTE_CLOSE");
@@ -128,9 +126,10 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         }
 
         WebSocketFrame frame = (WebSocketFrame) msg;
-        if (frame instanceof TextWebSocketFrame) {
-            TextWebSocketFrame textFrame = (TextWebSocketFrame) frame;
-            handleShelloidClientMsg(textFrame.text(), ctx.channel());
+        if (frame instanceof BinaryWebSocketFrame) {
+            BinaryWebSocketFrame binFrame = (BinaryWebSocketFrame) frame;
+            /* TODO: check whther is it the last message */
+            handleShelloidClientMsg(binFrame.content().array(), ctx.channel());
         } else if (frame instanceof PingWebSocketFrame) {
             ctx.channel().writeAndFlush(new PongWebSocketFrame());
         } else if (frame instanceof PongWebSocketFrame) {
@@ -143,6 +142,8 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             } catch (InterruptedException ex) {
                 Platform.shelloidLogger.error("InterruptedException while closing channel (channelInactive)");
             }
+        } else {
+            throw new Exception("Frame type not supported: " + msg);
         }
     }
 
@@ -162,99 +163,95 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
     }
     // </editor-fold>
 
-    private void handleShelloidClientMsg(String text, Channel channel) {
-        try {
-            Platform.shelloidLogger.debug("Client Received: " + text);
-            ShelloidMessage msg = ShelloidMessage.parse(text);
-            String type = msg.getString(MessageFields.type);
-            if (type.equals(MessageTypes.URGENT)) {
-                switch (msg.getString(MessageFields.subType)) {
-                    case MessageTypes.TUNNEL: {
-                        handleTunnelMessage(msg, channel);
-                        break;
+    private void handleShelloidClientMsg(byte[] data, Channel channel) throws Exception {
+        Platform.shelloidLogger.debug("Client Received data.");
+        ShelloidMessage msg = ShelloidMessage.parseFrom(data);
+        MessageTypes type = msg.getType();
+        if (type == MessageTypes.URGENT) {
+            switch (type) {
+                case TUNNEL: {
+                    handleTunnelMessage(msg, channel);
+                    break;
+                }
+                case ACK: {
+                    Long msgId = msg.getSeqNum();
+                    messenger.processAckMsg(msgId, channel);
+                    break;
+                }
+                case DEVICE_MAPPINGS: {
+                    if (!deviceMappingRcvd) {
+                        deviceMappingRcvd = true;
+                        handleDeviceMappingsMsg(msg, channel);
                     }
-                    case MessageTypes.ACK: {
-                        String msgId = msg.getString(MessageFields.seqNum);
-                        messenger.processAckMsg(msgId, channel);
-                        break;
-                    }
-                    case MessageTypes.DEVICE_MAPPINGS: {
-                        if (!deviceMappingRcvd) {
-                            deviceMappingRcvd = true;
-                            handleDeviceMappingsMsg(msg, channel);
-                        }
-                        break;
-                    }
-                    case MessageTypes.NO_ROUTE: {
-                        String connId = msg.getString(MessageFields.portMapId) + ":" + msg.getString(MessageFields.connTs);
-                        ConnectionInfo info = agentConnMap.get(connId);
-                        if (info != null) {
-                            info.noRouteMsgCount++;
-                            if (info.noRouteMsgCount > Configurations.MAX_NO_ROUTE_MSG) {
-                                info.getPtcp().close(true);
-                                try {
-                                    info.getChannel().close().sync();
-                                } catch (InterruptedException ex) {
-                                    Platform.shelloidLogger.error("InterruptedException while closing channel", ex);
-                                }
-                                Platform.shelloidLogger.warn("No route found for the other device. So removing from agentConnMap: " + connId);
-                                agentConnMap.remove(connId);
-                                Platform.shelloidLogger.error("No route found for the device " + msg.getString(MessageFields.remoteDevId) + ": " + msg.getString(MessageFields.msg));
-                                Platform.shelloidLogger.warn("No route found for the other device\n" + msg.getString(MessageFields.msg));
-                            } else {
-                                Platform.shelloidLogger.warn("Ignoring for the device " + msg.getString(MessageFields.remoteDevId) + ": " + msg.getString(MessageFields.msg) + ", count: " + info.noRouteMsgCount);
+                    break;
+                }
+                case NO_ROUTE: {
+                    String connId = msg.getPortMapId() + ":" + msg.getConnTs();
+                    ConnectionInfo info = agentConnMap.get(connId);
+                    if (info != null) {
+                        info.noRouteMsgCount++;
+                        if (info.noRouteMsgCount > Configurations.MAX_NO_ROUTE_MSG) {
+                            info.getPtcp().close(true);
+                            try {
+                                info.getChannel().close().sync();
+                            } catch (InterruptedException ex) {
+                                Platform.shelloidLogger.error("InterruptedException while closing channel", ex);
                             }
+                            Platform.shelloidLogger.warn("No route found for the other device. So removing from agentConnMap: " + connId);
+                            agentConnMap.remove(connId);
+                            Platform.shelloidLogger.error("No route found for the device " + msg.getRemoteDevId() + ": " + msg.getMsg());
+                            Platform.shelloidLogger.warn("No route found for the other device\n" + msg.getMsg());
                         } else {
-                            /* Message may be a non Tunnel message */
+                            Platform.shelloidLogger.warn("Ignoring for the device " + msg.getRemoteDevId() + ": " + msg.getMsg() + ", count: " + info.noRouteMsgCount);
                         }
+                    } else {
+                        /* Message may be a non Tunnel message */
+                    }
+                    break;
+                }
+                default: {
+                    System.err.println("Unknown urgent message: " + msg.getSubType());
+                    break;
+                }
+            }
+        } else {
+            long currentSeqNum = msg.getSeqNum();
+            try {
+                if (currentSeqNum > lastSentAckNum) {
+                    lastSentAckNum = currentSeqNum;
+                } else {
+                    Platform.shelloidLogger.info("current sequence number(" + currentSeqNum + ") less than or equal to last rcvd seq number(" + lastSentAckNum + ").");
+                }
+                switch (type) {
+                    case START_LISTENING: {
+                        handleStartListeningMgs(msg, channel);
+                        break;
+                    }
+                    case OPEN_PORT: {
+                        long portMapId = msg.getPortMapId();
+                        int svcPort = msg.getSvcPort();
+                        handleOpenPortMsg(portMapId, svcPort, channel);
+                        break;
+                    }
+                    case CLOSE_PORT:
+                    case STOP_LISTEN: {
+                        handleFinishOperationMsg(msg, type, channel);
                         break;
                     }
                     default: {
-                        System.err.println("Unknown urgent message:" + text);
+                        System.err.println("Unknown reliable Message: " + type);
                         break;
                     }
                 }
-            } else {
-                long currentSeqNum = Long.parseLong(msg.getString(MessageFields.seqNum));
-                try {
-                    if (currentSeqNum > lastSentAckNum) {
-                        lastSentAckNum = currentSeqNum;
-                    } else {
-                        Platform.shelloidLogger.info("current sequence number(" + currentSeqNum + ") less than or equal to last rcvd seq number(" + lastSentAckNum + ").");
-                    }
-                        switch (type) {
-                            case MessageTypes.START_LISTENING: {
-                                handleStartListeningMgs(msg, channel);
-                                break;
-                            }
-                            case MessageTypes.OPEN_PORT: {
-                                String portMapId = msg.getString(MessageFields.portMapId);
-                                String svcPort = msg.getString(MessageFields.svcPort);
-                                handleOpenPortMsg(portMapId, svcPort, channel);
-                                break;
-                            }
-                            case MessageTypes.CLOSE_PORT:
-                            case MessageTypes.STOP_LISTEN: {
-                                handleFinishOperationMsg(msg, type, channel);
-                                break;
-                            }
-                            default: {
-                                System.err.println("Unknown reliable Message: " + text);
-                                break;
-                            }
-                        }
-                } finally {
-                    sendAckMessage(channel, lastSentAckNum);
-                    messenger.setLastSentAckNum(lastSentAckNum);
-                }
+            } finally {
+                sendAckMessage(channel, lastSentAckNum);
+                messenger.setLastSentAckNum(lastSentAckNum);
             }
-        } catch (ShelloidNonRetriableException ex) {
-            Platform.shelloidLogger.error("Shelloid NRE: ", ex);
         }
     }
 
-    private void handleOpenPortMsg(String portMapId, String svcPort, Channel serverChannel) {
-        if (agentSvcMap.containsKey(portMapId) && (svcPort.equals(agentSvcMap.get(portMapId)))) {
+    private void handleOpenPortMsg(long portMapId, int svcPort, Channel serverChannel) {
+        if (agentSvcMap.containsKey(portMapId) && (svcPort == agentSvcMap.get(portMapId))) {
             Platform.shelloidLogger.debug("Already received an OPEN_PORT request for port: " + agentSvcMap.get(portMapId));
         } else {
             agentSvcMap.put(portMapId, svcPort);
@@ -262,13 +259,13 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         String msg = "Your port " + svcPort + " is shared with someone.";
         Platform.shelloidLogger.warn(msg);
         App.showTrayMessage(msg, TrayIcon.MessageType.INFO);
-        send(serverChannel, new ShelloidMessage().put(MessageFields.type, MessageTypes.PORT_OPENED).put(MessageFields.portMapId, portMapId));
+        send(serverChannel, generatePortmapMessage(MessageTypes.PORT_OPENED, portMapId));
     }
 
-    private void handleFinishOperationMsg(ShelloidMessage msg, String type, Channel channel) {
-        String portMapId = msg.getString(MessageFields.portMapId);
+    private void handleFinishOperationMsg(ShelloidMessage msg, MessageTypes type, Channel channel) {
+        Long portMapId = msg.getPortMapId();
         PortMapInfo info = null;
-        int port = -1;
+        Integer port = -1;
         for (Map.Entry<Integer, PortMapInfo> o : agentPortMap.entrySet()) {
             if (o.getValue().getPortMapId().equals(portMapId)) {
                 info = o.getValue();
@@ -281,7 +278,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
                 PortMapInfo obj = o.getValue().getPortMapInfo();
                 if (obj != null) {
                     if (obj.getPortMapId().equals(info.getPortMapId()) && obj.getChannel() != null) {
-                        sendTunnelMessage(obj.getChannel(), info.getPortMapId(), o.getValue().isSvcSide(), o.getValue().getConnTs() + "", null, 0, MessageValues.REMOTE_CLOSE);
+                        sendTunnelMessage(obj.getChannel(), info.getPortMapId(), o.getValue().isSvcSide(), o.getValue().getConnTs(), null, 0, MessageValues.REMOTE_CLOSE);
                         Platform.shelloidLogger.info("closing from handleFinishOperationMsg.1");
                         try {
                             obj.getChannel().close().sync();
@@ -300,12 +297,10 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
                 }
             }
         }
-        if (port == -1){
-            try{
-                port = Integer.parseInt(agentSvcMap.get(portMapId));
-            }
-            catch (Exception ex){
-                //Platform.shelloidLogger.debug(agentSvcMap.get(portMapId) + " is not an integer (just checking!!).");
+        if (port == -1) {
+            try {
+                port = agentSvcMap.get(portMapId);
+            } catch (Exception ex) {
                 Platform.shelloidLogger.debug(agentSvcMap.get(portMapId) + " is not an integer (Portmap ID does not exists).");
             }
         }
@@ -313,19 +308,26 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         String trmsg;
         if (type.equals(MessageTypes.CLOSE_PORT)) {
             trmsg = "A sharing on port " + port + " has been removed.";
-            send(channel, new ShelloidMessage().put(MessageFields.type, MessageTypes.PORT_CLOSED).put(MessageFields.portMapId, portMapId));
+            send(channel, generatePortmapMessage(MessageTypes.PORT_CLOSED, portMapId));
         } else {
             trmsg = "Listening stopped on " + port;
-            send(channel, new ShelloidMessage().put(MessageFields.type, MessageTypes.LISTENING_STOPPED).put(MessageFields.portMapId, portMapId));
+            send(channel, generatePortmapMessage(MessageTypes.LISTENING_STOPPED, portMapId));
         }
-        if (port != -1){
+        if (port != -1) {
             App.showTrayMessage(trmsg, TrayIcon.MessageType.INFO);
             Platform.shelloidLogger.warn(trmsg);
         }
     }
 
+    private ShelloidMessage generatePortmapMessage(MessageTypes type, Long portMapId) {
+        ShelloidMessage.Builder msg = ShelloidMessage.newBuilder();
+        msg.setType(type);
+        msg.setPortMapId(portMapId);
+        return msg.build();
+    }
+
     private void handleStartListeningMgs(ShelloidMessage msg, Channel channel) throws NumberFormatException {
-        String portMapId = msg.getString(MessageFields.portMapId);
+        Long portMapId = msg.getPortMapId();
         boolean alreadyMapped = false;
         int port = -1;
         for (Map.Entry<Integer, PortMapInfo> portMap : agentPortMap.entrySet()) {
@@ -365,7 +367,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         return listeningChannel;
     }
 
-    public void executeListeningStartedProcedure(String portMapId, Channel listeningChannel, Channel serverChannel) {
+    public void executeListeningStartedProcedure(Long portMapId, Channel listeningChannel, Channel serverChannel) {
         int port = sutils.getLocalPort(listeningChannel);
         agentPortMap.put(port, new PortMapInfo(portMapId, listeningChannel));
         sendListeningStartedMsg(port, portMapId, serverChannel);
@@ -374,21 +376,21 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         App.showTrayMessage(msg, TrayIcon.MessageType.INFO);
     }
 
-    public void sendListeningStartedMsg(int port, String portMapId, Channel serverChannel) {
-        ShelloidMessage smsg = new ShelloidMessage();
-        smsg.put(MessageFields.type, MessageTypes.LISTENING_STARTED);
-        smsg.put(MessageFields.mappedPort, port + "");
-        smsg.put(MessageFields.portMapId, portMapId);
-        send(serverChannel, smsg);
+    public void sendListeningStartedMsg(Integer port, Long portMapId, Channel serverChannel) {
+        ShelloidMessage.Builder msg = ShelloidMessage.newBuilder();
+        msg.setType(MessageTypes.LISTENING_STARTED);
+        msg.setMappedPort(port);
+        msg.setPortMapId(portMapId);
+        send(serverChannel, msg.build());
     }
 
-    private void sendAckMessage(Channel ch, long ackSeqNo) {
-        ShelloidMessage ack = new ShelloidMessage();
-        ack.put(MessageFields.type, MessageTypes.URGENT);
-        ack.put(MessageFields.subType, MessageTypes.ACK);
-        ack.put(MessageFields.seqNum, ackSeqNo);
+    private void sendAckMessage(Channel ch, Long ackSeqNo) {
+        ShelloidMessage.Builder msg = ShelloidMessage.newBuilder();
+        msg.setType(MessageTypes.URGENT);
+        msg.setSubType(MessageTypes.ACK);
+        msg.setSeqNum(ackSeqNo);
         lastSentAckNum = ackSeqNo;
-        send(ch, ack);
+        send(ch, msg.build());
     }
 
     public void setChannel(Channel ch) {
@@ -401,9 +403,9 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
 
     public void send(Channel channel, ShelloidMessage msg) {
         if (messenger == null) {
-            channel.writeAndFlush(new TextWebSocketFrame(msg.getJson()));
+            messenger.sendImmediate(msg, channel);
         } else {
-            if (msg.getString(MessageFields.type).equals(MessageTypes.URGENT)) {
+            if (msg.getType() == MessageTypes.URGENT) {
                 messenger.sendImmediate(msg, channel);
             } else {
                 messenger.sendToClient(msg, channel);
@@ -449,7 +451,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         }
     }
 
-    public void doRemoteClose(Channel remoteChannel, Channel appChannel, String connId, String portMapId, boolean isSvcSide, long connTs, PseudoTcp ptcp, ConnectionInfo info) {
+    public void doRemoteClose(Channel remoteChannel, Channel appChannel, String connId, Long portMapId, boolean isSvcSide, long connTs, PseudoTcp ptcp, ConnectionInfo info) {
         boolean sendCloseMsg = true;
         if (appChannel != null) {
             Platform.shelloidLogger.info("closing from doRemoteClose.1");
@@ -470,10 +472,10 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         }
         if (sendCloseMsg) {
             if (info == null) {
-                sendTunnelMessage(remoteChannel, portMapId, isSvcSide, connTs + "", null, 0, MessageValues.REMOTE_CLOSE);
+                sendTunnelMessage(remoteChannel, portMapId, isSvcSide, connTs, null, 0, MessageValues.REMOTE_CLOSE);
             } else {
                 if (!info.hasReceivedRemoteClose) {
-                    sendTunnelMessage(remoteChannel, portMapId, isSvcSide, connTs + "", null, 0, MessageValues.REMOTE_CLOSE);
+                    sendTunnelMessage(remoteChannel, portMapId, isSvcSide, connTs, null, 0, MessageValues.REMOTE_CLOSE);
                 }
             }
             Platform.shelloidLogger.info("From doRemoteClose: removing from agentConnMap: " + connId);
@@ -481,24 +483,25 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         }
     }
 
-    public void sendTunnelMessage(Channel ch, String portMapId, boolean isSvcSide, String connTs, byte[] buffer, int len, String ctrl) {
+    public void sendTunnelMessage(Channel ch, Long portMapId, boolean isSvcSide, long connTs, byte[] buffer, int len, String ctrl) {
         if (ch == null) {
             Platform.shelloidLogger.warn("Channel is null. So droping the message");
         } else {
-            ShelloidMessage msg = new ShelloidMessage();
-            msg.put(MessageFields.type, MessageTypes.URGENT);
-            msg.put(MessageFields.subType, MessageTypes.TUNNEL);
-            msg.put(MessageFields.portMapId, portMapId);
-            msg.put(MessageFields.isSvcSide, isSvcSide + "");
-            msg.put(MessageFields.connTs, connTs);
+            ShelloidMessage.Builder msg = ShelloidMessage.newBuilder();
+            msg.setType(MessageTypes.URGENT);
+            msg.setSubType(MessageTypes.TUNNEL);
+            msg.setPortMapId(portMapId);
+            msg.setIsSvcSide(isSvcSide);
+            msg.setConnTs(connTs);
             if (ctrl != null) {
-                msg.put(MessageFields.ctrlMsg, ctrl);
+                msg.setCtrlMsg(ctrl);
             }
             if (buffer != null && len > 0) {
-                String hex = HelperFunctions.toHexString(buffer, 0, len);
-                msg.put(MessageFields.data, hex);
+                //String hex = HelperFunctions.toHexString(buffer, 0, len);
+                ByteString bs = ByteString.copyFrom(buffer);
+                msg.setData(bs);
             }
-            send(ch, msg);
+            send(ch, msg.build());
         }
     }
 
@@ -531,24 +534,20 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
     }
 
     private void handleDeviceMappingsMsg(ShelloidMessage msg, Channel channel) {
-        ArrayList<LinkedTreeMap> guestPorts = msg.getArray(MessageFields.guestPortMappings);
-        ArrayList<LinkedTreeMap> hostPorts = msg.getArray(MessageFields.hostPortMappings);
+        List<PortMappingInfo> guestPorts = msg.getGuestPortMappingsList();
+        List<PortMappingInfo> hostPorts = msg.getHostPortMappingsList();
         LocalLink currentLocalink = new LocalLink(this);
-        Iterator<LinkedTreeMap> i = guestPorts.iterator();
+        Iterator<PortMappingInfo> i = guestPorts.iterator();
         while (i.hasNext()) {
-            int port = -1;
-            LinkedTreeMap portMap = i.next();
-            String portStr = portMap.get(MessageFields.port).toString();
-            String portMapId = portMap.get(MessageFields.portMapId).toString();
-            boolean disabled = Boolean.parseBoolean(portMap.get(MessageFields.disabled).toString());
+            PortMappingInfo portMap = i.next();
+            Integer port = portMap.getPort();
+            Long portMapId = portMap.getPortMapId();
+            boolean disabled = portMap.getDisabled();
             if (disabled == true) {
-                send(channel, new ShelloidMessage().put(MessageFields.type, MessageTypes.LISTENING_STOPPED).put(MessageFields.portMapId, portMapId));
+                send(channel, generatePortmapMessage(MessageTypes.LISTENING_STOPPED, portMapId));
                 i.remove();
             } else {
                 Channel listeningChannel = null;
-                if (portStr != null) {
-                    port = Integer.parseInt(portStr);
-                }
                 if (port == -1) {
                     listeningChannel = listenToAvailablePort();
                 } else {
@@ -571,8 +570,8 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         }
         i = guestPorts.iterator();
         while (i.hasNext()) {
-            LinkedTreeMap portMap = i.next();
-            String portMapId = portMap.get(MessageFields.portMapId).toString();
+            PortMappingInfo portMap = i.next();
+            Long portMapId = portMap.getPortMapId();
             Channel listeningChannel = listenToAvailablePort();
             if (listeningChannel != null) {
                 executeListeningStartedProcedure(portMapId, listeningChannel, channel);
@@ -582,25 +581,25 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         }
         i = hostPorts.iterator();
         while (i.hasNext()) {
-            LinkedTreeMap portMap = i.next();
-            boolean disabled = Boolean.parseBoolean(portMap.get(MessageFields.disabled).toString());
-            String portMapId = portMap.get(MessageFields.portMapId).toString();
+            PortMappingInfo portMap = i.next();
+            boolean disabled = portMap.getDisabled();
+            Long portMapId = portMap.getPortMapId();
             if (disabled == true) {
-                send(channel, new ShelloidMessage().put(MessageFields.type, MessageTypes.PORT_CLOSED).put(MessageFields.portMapId, portMapId));
+                send(channel, generatePortmapMessage(MessageTypes.PORT_CLOSED, portMapId));
                 i.remove();
             } else {
-                String portStr = portMap.get(MessageFields.port).toString();
+                int portStr = portMap.getPort();
                 handleOpenPortMsg(portMapId, portStr, channel);
             }
         }
     }
 
     public void handleTunnelMessage(ShelloidMessage msg, Channel remoteChannel) {
-        long connTs = msg.getLong(MessageFields.connTs);
-        String portMapId = msg.getString(MessageFields.portMapId);
+        long connTs = msg.getConnTs();
+        long portMapId = msg.getPortMapId();
         String connId = portMapId + ":" + connTs;
         ConnectionInfo connInfo = agentConnMap.get(connId);
-        String ctrl = msg.getString(MessageFields.ctrlMsg);
+        String ctrl = msg.getCtrlMsg();
         if ((ctrl != null) && (ctrl.equals(MessageValues.REMOTE_CLOSE))) {
             if (connInfo != null) {
                 connInfo.hasReceivedRemoteClose = true;
@@ -620,7 +619,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             }
             return;
         }
-        boolean remoteIsSvcSide = msg.getBoolean(MessageFields.isSvcSide);
+        boolean remoteIsSvcSide = msg.getIsSvcSide();
         PseudoTcp ptcp = null;
         if (connInfo == null) {
             //this is probably svc-side receiving msg for first time
@@ -633,7 +632,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             }
             try {
                 //this is host-side receiving msg for first time - so set up our connInfo
-                String svcPort = agentSvcMap.get(portMapId);
+                Integer svcPort = agentSvcMap.get(portMapId);
                 if (svcPort != null) {
                     Channel newChannel;
                     LocalLink currentLocalink = new LocalLink(this);
@@ -641,7 +640,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
                     connInfo = new ConnectionInfo(ptcp, 0, true, connTs, System.currentTimeMillis(), false);
                     Bootstrap b = currentLocalink.getClientBootstrap();
                     b.attr(LocalLink.CONNECTION_MAPPING, connInfo);
-                    newChannel = b.connect("localhost", Integer.parseInt(svcPort)).sync().channel();
+                    newChannel = b.connect("localhost", svcPort).sync().channel();
                     Platform.shelloidLogger.info("Establishing a new Connection (id: " + connId + "): " + newChannel);
                     connInfo.setAgentPort(sutils.getLocalPort(newChannel));
                     connInfo.setChannel(newChannel);
@@ -673,8 +672,8 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             connInfo.noRouteMsgCount = 0;
         }
         if (ptcp != null) {
-            String hex = msg.getString(MessageFields.data);
-            byte[] data = HelperFunctions.fromHexString(hex);
+            ByteString hex = msg.getData();
+            byte[] data = hex.toByteArray();//HelperFunctions.fromHexString(hex);
             //System.out.println("CALLING ptcp.notifyPacket");
             boolean notifyOk = ptcp.notifyPacket(data, data.length);
             if (!notifyOk || (connInfo.getPendingClose() && ptcp.getSendBufLen() <= 0)) {

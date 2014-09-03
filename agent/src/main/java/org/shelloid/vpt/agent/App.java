@@ -13,13 +13,6 @@ import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.joran.JoranConfigurator;
 import ch.qos.logback.core.joran.spi.JoranException;
 import ch.qos.logback.core.util.StatusPrinter;
-import org.shelloid.common.ICallback;
-import org.shelloid.common.ShelloidUtil;
-import org.shelloid.common.messages.MessageFields;
-import org.shelloid.vpt.agent.common.CallbackMessage;
-import org.shelloid.vpt.agent.util.AgentReliableMessenger;
-import org.shelloid.vpt.agent.util.Configurations;
-import org.shelloid.vpt.agent.util.Platform;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
@@ -79,6 +72,13 @@ import javax.swing.AbstractAction;
 import javax.swing.ImageIcon;
 import javax.swing.JOptionPane;
 import org.apache.commons.codec.binary.Base64;
+import org.shelloid.common.ICallback;
+import org.shelloid.common.ShelloidUtil;
+import org.shelloid.common.messages.ShelloidHeaderFields;
+import org.shelloid.vpt.agent.common.CallbackMessage;
+import org.shelloid.vpt.agent.util.AgentReliableMessenger;
+import org.shelloid.vpt.agent.util.Configurations;
+import org.shelloid.vpt.agent.util.Platform;
 import org.slf4j.LoggerFactory;
 
 /* @author Harikrishnan */
@@ -341,10 +341,10 @@ public class App {
     private HttpHeaders getAuthHeader(String key, String secret) {
         String version = getVersion();
         final HttpHeaders headers = new DefaultHttpHeaders();
-        headers.add(MessageFields.key, key);
-        headers.add(MessageFields.secret, secret);
-        headers.add(MessageFields.version, version);
-        headers.add(MessageFields.resetLastSendAck, rtmFilesCorrepted);
+        headers.add(ShelloidHeaderFields.key, key);
+        headers.add(ShelloidHeaderFields.secret, secret);
+        headers.add(ShelloidHeaderFields.version, version);
+        headers.add(ShelloidHeaderFields.resetLastSendAck, rtmFilesCorrepted);
         return headers;
     }
 

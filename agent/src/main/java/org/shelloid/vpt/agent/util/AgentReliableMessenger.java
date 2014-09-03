@@ -9,17 +9,17 @@
  */
 
 package org.shelloid.vpt.agent.util;
-
-import org.shelloid.common.messages.MessageFields;
-import org.shelloid.common.messages.ShelloidMessage;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
-import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.BinaryWebSocketFrame;
 import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
 import org.mapdb.Atomic;
 import org.mapdb.DB;
 import org.mapdb.DBMaker;
+import org.shelloid.common.messages.ShelloidMessageModel.ShelloidMessage;
 
 /* @author Harikrishnan */
 public class AgentReliableMessenger {
@@ -47,8 +47,10 @@ public class AgentReliableMessenger {
     public void sendToClient(ShelloidMessage msg, Channel ch) {
         boolean toSend = false;
         synchronized (pendingMsgQueue) {
-            msg.put(MessageFields.seqNum, getNewMsgSeqNo());
-            Platform.shelloidLogger.info("Client Scheduling Reliable Msg: " + msg.getJson());
+            ShelloidMessage.Builder bulder = msg.toBuilder();
+            bulder.setSeqNum(getNewMsgSeqNo());
+            msg = bulder.build();
+            Platform.shelloidLogger.info("Client Scheduling Reliable Msg: " + msg.getType());
             if (pendingMsgQueue.peek() == null) {
                 toSend = true;
             }
@@ -68,11 +70,10 @@ public class AgentReliableMessenger {
     }
 
     public void sendImmediate(ShelloidMessage msg, Channel ch) {
-        sendToWebSocket(msg.getJson(), ch);
+        sendToWebSocket(msg.toByteArray(), ch);
     }
 
-    public void processAckMsg(String seqNo, Channel ch) {
-        long ackSeqNum = Long.parseLong(seqNo);
+    public void processAckMsg(long ackSeqNum, Channel ch) {
         if (ackSeqNum == -1) {
             setLastSentAckNum(-1);
         }
@@ -81,7 +82,7 @@ public class AgentReliableMessenger {
             boolean removeFromQ = true;
             while(removeFromQ){
                 msg = pendingMsgQueue.peek();
-                if(msg == null || msg.getLong(MessageFields.seqNum) > ackSeqNum){
+                if(msg == null || msg.getSeqNum() > ackSeqNum){
                     removeFromQ = false;
                 }else{
                     pendingMsgQueue.remove();
@@ -113,8 +114,10 @@ public class AgentReliableMessenger {
         return num;
     }
 
-    private void sendToWebSocket(String msg, Channel ch) {
+    private void sendToWebSocket(byte[] msg, Channel ch) {
         Platform.shelloidLogger.debug("Client Sending " + msg);
-        ch.writeAndFlush(new TextWebSocketFrame(msg));
+        ByteBuf b = Unpooled.buffer(msg.length + 1);
+        b.writeBytes(msg);
+        ch.writeAndFlush(new BinaryWebSocketFrame(b));
     }
 }

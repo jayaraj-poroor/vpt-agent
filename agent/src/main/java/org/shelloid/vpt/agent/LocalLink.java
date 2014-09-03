@@ -187,8 +187,8 @@ public class LocalLink {
         public IPseudoTcpNotify.WriteResult tcpWritePacket(PseudoTcp tcp, byte[] buffer, final int len) {
             //System.out.println("tcpWritePacket");
             ConnectionInfo connInfo = (ConnectionInfo) tcp.attachment();
-            String portMapId = connInfo.getPortMapInfo().getPortMapId();
-            client.sendTunnelMessage(client.getChannel(), portMapId, connInfo.isSvcSide(), connInfo.getConnTs() + "", buffer, len, null);
+            Long portMapId = connInfo.getPortMapInfo().getPortMapId();
+            client.sendTunnelMessage(client.getChannel(), portMapId, connInfo.isSvcSide(), connInfo.getConnTs(), buffer, len, null);
             return IPseudoTcpNotify.WriteResult.WR_SUCCESS;
         }
 
@@ -227,7 +227,7 @@ public class LocalLink {
     private void doRemoteClose(ChannelHandlerContext ctx) {
         ConnectionInfo conn = ctx.channel().attr(CONNECTION_MAPPING).get();
         if (conn != null) {
-            String portMapId = conn.getPortMapInfo().getPortMapId();
+            Long portMapId = conn.getPortMapInfo().getPortMapId();
             String connId = portMapId + ":" + conn.getConnTs();
             client.doRemoteClose(client.getChannel(), ctx.channel(), connId, portMapId, conn.isSvcSide(), conn.getConnTs(), conn.getPtcp(), conn);
         }
