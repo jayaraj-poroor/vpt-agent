@@ -10,7 +10,6 @@
 package org.shelloid.vpt.agent;
 
 import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -38,7 +37,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import org.shelloid.common.ICallback;
 import org.shelloid.common.ShelloidUtil;
-import org.shelloid.common.exceptions.ShelloidNonRetriableException;
 import org.shelloid.common.messages.MessageValues;
 import org.shelloid.common.messages.ShelloidMessageModel.MessageTypes;
 import org.shelloid.common.messages.ShelloidMessageModel.PortMappingInfo;
