@@ -10,7 +10,9 @@
 package org.shelloid.vpt.agent;
 
 import com.google.protobuf.ByteString;
+import com.google.protobuf.TextFormat;
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
@@ -21,12 +23,14 @@ import io.netty.handler.codec.http.websocketx.BinaryWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.CloseWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.PingWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.PongWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketClientHandshaker;
 import io.netty.handler.codec.http.websocketx.WebSocketFrame;
 import io.netty.util.AttributeKey;
 import io.netty.util.CharsetUtil;
 import java.awt.TrayIcon;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -126,8 +130,13 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         WebSocketFrame frame = (WebSocketFrame) msg;
         if (frame instanceof BinaryWebSocketFrame) {
             BinaryWebSocketFrame binFrame = (BinaryWebSocketFrame) frame;
-            /* TODO: check whther is it the last message */
-            handleShelloidClientMsg(binFrame.content().array(), ctx.channel());
+            ByteBuf b = binFrame.content();
+            byte[] bytes = new byte[b.capacity()];
+            b.getBytes(0, bytes);
+            handleShelloidClientMsg(bytes, ctx.channel());
+
+        } else if (frame instanceof TextWebSocketFrame) {
+            throw new Exception("TextWebSocketFrame" + ((TextWebSocketFrame) frame).text());
         } else if (frame instanceof PingWebSocketFrame) {
             ctx.channel().writeAndFlush(new PongWebSocketFrame());
         } else if (frame instanceof PongWebSocketFrame) {
@@ -162,11 +171,11 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
     // </editor-fold>
 
     private void handleShelloidClientMsg(byte[] data, Channel channel) throws Exception {
-        Platform.shelloidLogger.debug("Client Received data.");
         ShelloidMessage msg = ShelloidMessage.parseFrom(data);
+        Platform.shelloidLogger.debug("Client Received data: {" + TextFormat.shortDebugString(msg) + "}");
         MessageTypes type = msg.getType();
         if (type == MessageTypes.URGENT) {
-            switch (type) {
+            switch (msg.getSubType()) {
                 case TUNNEL: {
                     handleTunnelMessage(msg, channel);
                     break;
@@ -311,7 +320,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             trmsg = "Listening stopped on " + port;
             send(channel, generatePortmapMessage(MessageTypes.LISTENING_STOPPED, portMapId));
         }
-        if (port != -1) {
+        if ((port != null) && (port != -1)) {
             App.showTrayMessage(trmsg, TrayIcon.MessageType.INFO);
             Platform.shelloidLogger.warn(trmsg);
         }
@@ -496,7 +505,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             }
             if (buffer != null && len > 0) {
                 //String hex = HelperFunctions.toHexString(buffer, 0, len);
-                ByteString bs = ByteString.copyFrom(buffer);
+                ByteString bs = ByteString.copyFrom(buffer, 0, len);
                 msg.setData(bs);
             }
             send(ch, msg.build());
@@ -532,8 +541,8 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
     }
 
     private void handleDeviceMappingsMsg(ShelloidMessage msg, Channel channel) {
-        List<PortMappingInfo> guestPorts = msg.getGuestPortMappingsList();
-        List<PortMappingInfo> hostPorts = msg.getHostPortMappingsList();
+        List<PortMappingInfo> guestPorts = new ArrayList<>(msg.getGuestPortMappingsList());
+        List<PortMappingInfo> hostPorts = new ArrayList<>(msg.getHostPortMappingsList());
         LocalLink currentLocalink = new LocalLink(this);
         Iterator<PortMappingInfo> i = guestPorts.iterator();
         while (i.hasNext()) {

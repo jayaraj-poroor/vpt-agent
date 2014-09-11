@@ -9,6 +9,7 @@
  */
 
 package org.shelloid.vpt.agent.util;
+import com.google.protobuf.TextFormat;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
@@ -50,7 +51,7 @@ public class AgentReliableMessenger {
             ShelloidMessage.Builder bulder = msg.toBuilder();
             bulder.setSeqNum(getNewMsgSeqNo());
             msg = bulder.build();
-            Platform.shelloidLogger.info("Client Scheduling Reliable Msg: " + msg.getType());
+            Platform.shelloidLogger.debug("Client Scheduling Reliable message" + TextFormat.shortDebugString(msg)+"}");
             if (pendingMsgQueue.peek() == null) {
                 toSend = true;
             }
@@ -70,6 +71,7 @@ public class AgentReliableMessenger {
     }
 
     public void sendImmediate(ShelloidMessage msg, Channel ch) {
+        Platform.shelloidLogger.debug("Sending : {" + TextFormat.shortDebugString(msg)+"}");
         sendToWebSocket(msg.toByteArray(), ch);
     }
 
@@ -115,7 +117,6 @@ public class AgentReliableMessenger {
     }
 
     private void sendToWebSocket(byte[] msg, Channel ch) {
-        Platform.shelloidLogger.debug("Client Sending " + msg);
         ByteBuf b = Unpooled.buffer(msg.length + 1);
         b.writeBytes(msg);
         ch.writeAndFlush(new BinaryWebSocketFrame(b));
