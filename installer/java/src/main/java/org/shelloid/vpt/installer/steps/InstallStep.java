@@ -4,23 +4,15 @@
 package org.shelloid.vpt.installer.steps;
 
 import org.shelloid.vpt.installer.App;
-import org.shelloid.vpt.installer.UnzipUtility;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.FileWriter;
-import java.io.FilterWriter;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.net.URI;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.util.Date;
 import java.util.Properties;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JComponent;
@@ -29,7 +21,6 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import net.javaprog.ui.wizard.AbstractStep;
-import net.javaprog.ui.wizard.DataModel;
 
 /* @author Harikrishnan */
 public class InstallStep extends AbstractStep {
@@ -43,7 +34,7 @@ public class InstallStep extends AbstractStep {
         super("Installing Shelloid VPT Agent", "Please wait while installing Shelloid VPT Agent...");
         String path = InstallStep.class.getProtectionDomain().getCodeSource().getLocation().getPath(); 
         String decodedPath = URLDecoder.decode(path, "UTF-8");
-        File f = new File(new URL("file://" + decodedPath).toURI());
+        File f = new File(new URL("file://" + decodedPath.replace(" ", "%20")).toURI());
         currentDir = f.getParent();
         System.out.println("JAR path: " + currentDir);
         os = System.getProperty("os.name").toLowerCase();
