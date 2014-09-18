@@ -46,7 +46,7 @@ import java.util.concurrent.ScheduledExecutorService;
 /* @author Harikrishnan */
 public class LocalLink {
 
-    public static final HashMap<Integer, PortMapInfo> localAgentPortMap = new HashMap<>();
+    public static final HashMap<Integer, PortMapInfo> localAgentPortMap = new HashMap<Integer, PortMapInfo>();
     private final VPTClient client;
     private final ShelloidUtil sutils;
     public static final AttributeKey<ConnectionInfo> CONNECTION_MAPPING = AttributeKey.valueOf("CONNECTION_MAPPING");

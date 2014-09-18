@@ -41,6 +41,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import org.shelloid.common.ICallback;
 import org.shelloid.common.ShelloidUtil;
+import org.shelloid.common.exceptions.ShelloidNonRetriableException;
 import org.shelloid.common.messages.MessageValues;
 import org.shelloid.common.messages.ShelloidMessageModel.MessageTypes;
 import org.shelloid.common.messages.ShelloidMessageModel.PortMappingInfo;
@@ -53,6 +54,7 @@ import org.shelloid.vpt.agent.common.PortMapInfo;
 import org.shelloid.vpt.agent.util.AgentReliableMessenger;
 import org.shelloid.vpt.agent.util.Configurations;
 import org.shelloid.vpt.agent.util.Platform;
+import org.shelloid.vpt.agent.util.ShelloidPolicyAddon;
 
 /* @author Harikrishnan */
 public class VPTClient extends SimpleChannelInboundHandler<Object> {
@@ -237,7 +239,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
                     case OPEN_PORT: {
                         long portMapId = msg.getPortMapId();
                         int svcPort = msg.getSvcPort();
-                        handleOpenPortMsg(portMapId, svcPort, channel);
+                        handleOpenPortMsg(portMapId, svcPort, channel, msg.getAppName(), msg.getPolicyText());
                         break;
                     }
                     case CLOSE_PORT:
@@ -257,16 +259,47 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         }
     }
 
-    private void handleOpenPortMsg(long portMapId, int svcPort, Channel serverChannel) {
+    private void handleOpenPortMsg(long portMapId, int svcPort, Channel serverChannel, String appName, String policyText) {
+        String processedOutput = null;
         if (agentSvcMap.containsKey(portMapId) && (svcPort == agentSvcMap.get(portMapId))) {
             Platform.shelloidLogger.debug("Already received an OPEN_PORT request for port: " + agentSvcMap.get(portMapId));
         } else {
             agentSvcMap.put(portMapId, svcPort);
+            processedOutput = processPolicyAddon(appName, policyText);
         }
         String msg = "Your port " + svcPort + " is shared with someone.";
         Platform.shelloidLogger.warn(msg);
         App.showTrayMessage(msg, TrayIcon.MessageType.INFO);
-        send(serverChannel, generatePortmapMessage(MessageTypes.PORT_OPENED, portMapId));
+        send(serverChannel, generatePortmapMessage(MessageTypes.PORT_OPENED, portMapId, processedOutput));
+    }
+    
+    private String processPolicyAddon(String appName, String policyText){
+        if (policyText != null && policyText.length() > 0 && appName != null && appName.length() > 0){
+            ShelloidPolicyAddon addon = App.addons.get(appName);
+            if (addon != null) {
+                try {
+                     return addon.process(policyText);
+                } catch (ShelloidNonRetriableException ex) {
+                    Platform.shelloidLogger.error("Error processig policy text: " + policyText, ex);
+                    App.showTrayMessage("Error processig policy. ", TrayIcon.MessageType.ERROR);
+                }
+            }
+        }
+        return null;
+    }
+    
+    private void unProcessPolicyAddon(String appName, String processedOptions){
+        if (processedOptions != null && processedOptions.length() > 0 && appName != null && appName.length() > 0){
+            ShelloidPolicyAddon addon = App.addons.get(appName);
+            if (addon != null) {
+                try {
+                     addon.unprocess(processedOptions);
+                } catch (ShelloidNonRetriableException ex) {
+                    Platform.shelloidLogger.error("Error unprocessig policy options: " + processedOptions, ex);
+                    App.showTrayMessage("Error unprocessig policy. ", TrayIcon.MessageType.ERROR);
+                }
+            }
+        }
     }
 
     private void handleFinishOperationMsg(ShelloidMessage msg, MessageTypes type, Channel channel) {
@@ -315,10 +348,13 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         String trmsg;
         if (type.equals(MessageTypes.CLOSE_PORT)) {
             trmsg = "A sharing on port " + port + " has been removed.";
-            send(channel, generatePortmapMessage(MessageTypes.PORT_CLOSED, portMapId));
+            if (msg.getAppName() != null && msg.getAppName().length() > 0){
+                unProcessPolicyAddon (msg.getAppName(), msg.getCredentialText());
+            }
+            send(channel, generatePortmapMessage(MessageTypes.PORT_CLOSED, portMapId, null));
         } else {
             trmsg = "Listening stopped on " + port;
-            send(channel, generatePortmapMessage(MessageTypes.LISTENING_STOPPED, portMapId));
+            send(channel, generatePortmapMessage(MessageTypes.LISTENING_STOPPED, portMapId, null));
         }
         if ((port != null) && (port != -1)) {
             App.showTrayMessage(trmsg, TrayIcon.MessageType.INFO);
@@ -326,10 +362,13 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         }
     }
 
-    private ShelloidMessage generatePortmapMessage(MessageTypes type, Long portMapId) {
+    private ShelloidMessage generatePortmapMessage(MessageTypes type, Long portMapId, String processedOutput) {
         ShelloidMessage.Builder msg = ShelloidMessage.newBuilder();
         msg.setType(type);
         msg.setPortMapId(portMapId);
+        if (processedOutput != null){
+            msg.setCredentialText(processedOutput);
+        }
         return msg.build();
     }
 
@@ -541,8 +580,8 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
     }
 
     private void handleDeviceMappingsMsg(ShelloidMessage msg, Channel channel) {
-        List<PortMappingInfo> guestPorts = new ArrayList<>(msg.getGuestPortMappingsList());
-        List<PortMappingInfo> hostPorts = new ArrayList<>(msg.getHostPortMappingsList());
+        List<PortMappingInfo> guestPorts = new ArrayList<PortMappingInfo>(msg.getGuestPortMappingsList());
+        List<PortMappingInfo> hostPorts = new ArrayList<PortMappingInfo>(msg.getHostPortMappingsList());
         LocalLink currentLocalink = new LocalLink(this);
         Iterator<PortMappingInfo> i = guestPorts.iterator();
         while (i.hasNext()) {
@@ -551,7 +590,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             Long portMapId = portMap.getPortMapId();
             boolean disabled = portMap.getDisabled();
             if (disabled == true) {
-                send(channel, generatePortmapMessage(MessageTypes.LISTENING_STOPPED, portMapId));
+                send(channel, generatePortmapMessage(MessageTypes.LISTENING_STOPPED, portMapId, null));
                 i.remove();
             } else {
                 Channel listeningChannel = null;
@@ -592,11 +631,14 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             boolean disabled = portMap.getDisabled();
             Long portMapId = portMap.getPortMapId();
             if (disabled == true) {
-                send(channel, generatePortmapMessage(MessageTypes.PORT_CLOSED, portMapId));
+                if (portMap.hasAppName()){
+                    unProcessPolicyAddon (portMap.getAppName(), portMap.getCredentialText());
+                }
+                send(channel, generatePortmapMessage(MessageTypes.PORT_CLOSED, portMapId, null));
                 i.remove();
             } else {
                 int portStr = portMap.getPort();
-                handleOpenPortMsg(portMapId, portStr, channel);
+                handleOpenPortMsg(portMapId, portStr, channel, portMap.getAppName(), portMap.getPolicyText());
             }
         }
     }

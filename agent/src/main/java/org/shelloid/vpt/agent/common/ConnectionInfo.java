@@ -11,16 +11,9 @@ package org.shelloid.vpt.agent.common;
 
 import org.shelloid.ptcp.NetworkConstants;
 import org.shelloid.ptcp.PseudoTcp;
-import org.shelloid.vpt.agent.util.Platform;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /* @author Harikrishnan */
 public class ConnectionInfo {
@@ -53,7 +46,7 @@ public class ConnectionInfo {
         this.isConnected = isConnected; 
         pendingClose = false;
         hasReceivedRemoteClose = false;
-        pendingChannelWriteBufs = new ArrayList<>();
+        pendingChannelWriteBufs = new ArrayList<ByteBuf>();
         totalReadFromPtcp = 0;
         totalWrittenToPtcp = 0;
         noRouteMsgCount = 0;

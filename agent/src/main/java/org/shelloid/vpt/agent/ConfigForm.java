@@ -43,8 +43,8 @@ public class ConfigForm extends javax.swing.JFrame {
     private void loadProxyConfigs() {
         proxyPort.setText(Configurations.get(ConfigParams.PROXY_PORT));
         proxyServer.setText(Configurations.get(ConfigParams.PROXY_SERVER));
-        proxyUsername.setText(Configurations.get(ConfigParams.PRPXY_USERNAME));
-        proxyPassword.setText(Configurations.get(ConfigParams.PRPXY_PASSWORD));
+        proxyUsername.setText(Configurations.get(ConfigParams.PROXY_USERNAME));
+        proxyPassword.setText(Configurations.get(ConfigParams.PROXY_PASSWORD));
     }
     
     
@@ -197,8 +197,8 @@ public class ConfigForm extends javax.swing.JFrame {
         if (useProxy.isSelected()) {
             Configurations.put(ConfigParams.PROXY_SERVER, proxyServer.getText());
             Configurations.put(ConfigParams.PROXY_PORT, proxyPort.getText());
-            Configurations.put(ConfigParams.PRPXY_USERNAME, proxyUsername.getText());
-            Configurations.put(ConfigParams.PRPXY_PASSWORD, proxyPassword.getText());
+            Configurations.put(ConfigParams.PROXY_USERNAME, proxyUsername.getText());
+            Configurations.put(ConfigParams.PROXY_PASSWORD, proxyPassword.getText());
         }
         Configurations.save();
         if (checkLockFile){

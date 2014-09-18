@@ -7,3 +7,4 @@ server.port=443
 client.useProxy=false
 client.logFilePath=xxx
 server.cn=shelloid.com
+client.addonDescFile=./addons/addonDesc.txt

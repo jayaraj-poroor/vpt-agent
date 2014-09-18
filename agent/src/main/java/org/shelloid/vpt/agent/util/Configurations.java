@@ -27,6 +27,12 @@ public class Configurations {
     
     static {
         defaultProps.put(ConfigParams.SERVER_CN.toString(), "shelloid.com");
+        defaultProps.put(ConfigParams.MAX_CONCURRENT_MESSAGES.toString(), "5");
+        defaultProps.put(ConfigParams.SERVER_IP.toString(), "rms.shelloid.com");
+        defaultProps.put(ConfigParams.SERVER_PORT.toString() , "443");
+        defaultProps.put(ConfigParams.STARTING_PORT_NUMBER.toString() , "5000");
+        defaultProps.put(ConfigParams.LOGBACK_FILE_PATH.toString() , "logback.xml");
+        defaultProps.put(ConfigParams.LOG_FILE_PATH.toString() , ".");
         props = new Properties(defaultProps);
     }
 
@@ -69,15 +75,15 @@ public class Configurations {
         CLIENT_SECRET("client.secret"),
         STARTING_PORT_NUMBER("client.startingPortNumber"),
         MAX_CONCURRENT_MESSAGES("client.MaxConcurrentMessages"),
-        LOGBACK_FILE_PATH("client.logbackFilePath"), 
-        CERT_FILE("client.certfile"), 
+        LOGBACK_FILE_PATH("client.logbackFilePath"),
         PROXY_SERVER("client.proxy.server"), 
         PROXY_PORT("client.proxy.port"),
         USE_PROXY("client.useProxy"), 
-        PRPXY_USERNAME("client.proxy.username"), 
-        PRPXY_PASSWORD("client.proxy.password"),
+        PROXY_USERNAME("client.proxy.username"), 
+        PROXY_PASSWORD("client.proxy.password"),
         LOG_FILE_PATH("client.logFilePath"),
-        SERVER_CN("server.cn");
+        SERVER_CN("server.cn"),
+        ADDON_DIR("client.addonDescFile");
         private final String text;
 
         private ConfigParams(final String text) {

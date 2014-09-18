@@ -1,0 +1,1 @@
+MySQL=./addons/MySQL.jar:com.shelloid.vpt.agent.addon.mysql.MySQL

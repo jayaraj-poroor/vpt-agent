@@ -25,7 +25,7 @@ public class Platform {
 
     private Platform() {
         threadPool = Executors.newCachedThreadPool();
-        streamPublishList = new HashMap<>();
+        streamPublishList = new HashMap<String, Integer>();
     }
 
     public static Platform getInstance() {

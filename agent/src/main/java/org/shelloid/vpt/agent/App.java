@@ -38,7 +38,6 @@ import io.netty.handler.codec.http.websocketx.WebSocketClientHandshakerFactory;
 import io.netty.handler.codec.http.websocketx.WebSocketVersion;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.util.SimpleTrustManagerFactory;
-import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import java.awt.AWTException;
@@ -50,20 +49,23 @@ import java.awt.TrayIcon;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
-import java.io.FileNotFoundException;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.net.ConnectException;
 import java.net.URI;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.channels.FileLock;
 import java.security.KeyStore;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javax.net.ssl.ManagerFactoryParameters;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
@@ -79,6 +81,7 @@ import org.shelloid.vpt.agent.common.CallbackMessage;
 import org.shelloid.vpt.agent.util.AgentReliableMessenger;
 import org.shelloid.vpt.agent.util.Configurations;
 import org.shelloid.vpt.agent.util.Platform;
+import org.shelloid.vpt.agent.util.ShelloidPolicyAddon;
 import org.slf4j.LoggerFactory;
 
 /* @author Harikrishnan */
@@ -90,6 +93,7 @@ public class App {
     private boolean rtmFilesCorrepted;
     private EventLoopGroup group;
     private boolean shuttingDown;
+    public static HashMap<String, ShelloidPolicyAddon> addons = new HashMap();
 
     public static void referDynamicClasses() {
         //referring to dynamically loaded classes referred to in XML config files - so that 
@@ -103,6 +107,7 @@ public class App {
         referDynamicClasses();
         Configurations.loadPropertiesFile();
         loadLogbakConfigFile(Configurations.get(Configurations.ConfigParams.LOGBACK_FILE_PATH));
+        loadAddons(Configurations.get(Configurations.ConfigParams.ADDON_DIR));
         if (args.length > 0) {
             try {
                 for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
@@ -111,25 +116,17 @@ public class App {
                         break;
                     }
                 }
-            } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | javax.swing.UnsupportedLookAndFeelException ex) {
+            } catch (Exception ex) {
                 Platform.shelloidLogger.error("Look and Feel Error: " + ex.getMessage(), ex);
             }
             for (int i = 0; i < args.length; i++) {
-                switch (args[i]) {
-                    case "config": {
-                        System.out.println("Please edit agent.config file for changing the device identity, if system doesn't support GUI");
-                        new ConfigForm(true).setVisible(true);
-                        break;
-                    }
-                    case "startWithGui": {
-                        App a = new App();
-                        a.setupSystemTray();
-                        a.run();
-                        break;
-                    }
-                    default: {
-                        break;
-                    }
+                if (args[i].equals("config")) {
+                    System.out.println("Please edit agent.config file for changing the device identity, if system doesn't support GUI");
+                    new ConfigForm(true).setVisible(true);
+                } else if (args[i].equals("startWithGui")) {
+                    App a = new App();
+                    a.setupSystemTray();
+                    a.run();
                 }
             }
         } else {
@@ -173,6 +170,35 @@ public class App {
         final FileLock fileLock = file.getChannel().tryLock();
         if (fileLock == null) {
             throw new Exception("Can't get file lock. Check whether another instance is already runnibg.");
+        }
+    }
+
+    private static void loadAddons(final String path) {
+        if (path != null) {
+            File descFile = new File(path);
+            if (descFile.exists()) {
+                try {
+                    Properties addonProps = new Properties();
+                    addonProps.load(new FileReader(descFile));
+                    for (Map.Entry<Object, Object> addon : addonProps.entrySet()) {
+                        String addonVals[] = addon.getValue().toString().split(":");
+                        try {
+                            URLClassLoader child = new URLClassLoader(new URL[]{new File(addonVals[0]).toURI().toURL()});
+                            ShelloidPolicyAddon mx = (ShelloidPolicyAddon) Class.forName(addonVals[1], true, child).newInstance();
+                            Platform.shelloidLogger.warn(addonVals[0] + " addon loaded.");
+                            addons.put(addon.getKey().toString(), mx);
+                        } catch (Exception ex) {
+                            Platform.shelloidLogger.error("Failed to load class " + addonVals[1] + " from " + addonVals[0], ex);
+                        }
+                    }
+                } catch (Exception ex) {
+                    Platform.shelloidLogger.error("Failed to load addon configurations from " + path, ex);
+                }
+            } else {
+                Platform.shelloidLogger.warn("Not loading any addons because " + path + " does not exists.");
+            }
+        } else {
+            Platform.shelloidLogger.warn("Not loading any addons.");
         }
     }
 
@@ -257,8 +283,8 @@ public class App {
             try {
                 proxPort = Integer.parseInt(Configurations.get(Configurations.ConfigParams.PROXY_PORT) + "");
                 proxyHost = Configurations.get(Configurations.ConfigParams.PROXY_SERVER) + "";
-                proxyUserName = Configurations.get(Configurations.ConfigParams.PRPXY_USERNAME) + "";
-                proxyPassword = Configurations.get(Configurations.ConfigParams.PRPXY_PASSWORD) + "";
+                proxyUserName = Configurations.get(Configurations.ConfigParams.PROXY_USERNAME) + "";
+                proxyPassword = Configurations.get(Configurations.ConfigParams.PROXY_PASSWORD) + "";
                 Platform.shelloidLogger.warn("Using proxy server " + proxyHost + ":" + proxPort);
                 Channel ch = b.connect(proxyHost, proxPort).sync().channel();
                 HttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.CONNECT, uri.getHost() + ":" + uri.getPort());
