@@ -270,7 +270,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         String msg = "Your port " + svcPort + " is shared with someone.";
         Platform.shelloidLogger.warn(msg);
         App.showTrayMessage(msg, TrayIcon.MessageType.INFO);
-        send(serverChannel, generatePortmapMessage(MessageTypes.PORT_OPENED, portMapId, processedOutput));
+        send(serverChannel, generatePortmapMessage(MessageTypes.PORT_OPENED, portMapId, appName, processedOutput));
     }
     
     private String processPolicyAddon(String appName, String policyText){
@@ -351,10 +351,10 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             if (msg.getAppName() != null && msg.getAppName().length() > 0){
                 unProcessPolicyAddon (msg.getAppName(), msg.getCredentialText());
             }
-            send(channel, generatePortmapMessage(MessageTypes.PORT_CLOSED, portMapId, null));
+            send(channel, generatePortmapMessage(MessageTypes.PORT_CLOSED, portMapId, null, null));
         } else {
             trmsg = "Listening stopped on " + port;
-            send(channel, generatePortmapMessage(MessageTypes.LISTENING_STOPPED, portMapId, null));
+            send(channel, generatePortmapMessage(MessageTypes.LISTENING_STOPPED, portMapId, null, null));
         }
         if ((port != null) && (port != -1)) {
             App.showTrayMessage(trmsg, TrayIcon.MessageType.INFO);
@@ -362,7 +362,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         }
     }
 
-    private ShelloidMessage generatePortmapMessage(MessageTypes type, Long portMapId, String processedOutput) {
+    private ShelloidMessage generatePortmapMessage(MessageTypes type, Long portMapId, String appName, String processedOutput) {
         ShelloidMessage.Builder msg = ShelloidMessage.newBuilder();
         msg.setType(type);
         msg.setPortMapId(portMapId);
@@ -590,7 +590,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             Long portMapId = portMap.getPortMapId();
             boolean disabled = portMap.getDisabled();
             if (disabled == true) {
-                send(channel, generatePortmapMessage(MessageTypes.LISTENING_STOPPED, portMapId, null));
+                send(channel, generatePortmapMessage(MessageTypes.LISTENING_STOPPED, portMapId, null, null));
                 i.remove();
             } else {
                 Channel listeningChannel = null;
@@ -634,7 +634,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
                 if (portMap.hasAppName()){
                     unProcessPolicyAddon (portMap.getAppName(), portMap.getCredentialText());
                 }
-                send(channel, generatePortmapMessage(MessageTypes.PORT_CLOSED, portMapId, null));
+                send(channel, generatePortmapMessage(MessageTypes.PORT_CLOSED, portMapId, null, null));
                 i.remove();
             } else {
                 int portStr = portMap.getPort();
