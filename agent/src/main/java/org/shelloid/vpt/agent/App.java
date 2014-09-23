@@ -175,7 +175,7 @@ public class App {
 
     private static void loadAddons(final String path) {
         if (path != null) {
-            File descFile = new File(path);
+            File descFile = new File(path, "addonDesc.txt");
             if (descFile.exists()) {
                 try {
                     Properties addonProps = new Properties();

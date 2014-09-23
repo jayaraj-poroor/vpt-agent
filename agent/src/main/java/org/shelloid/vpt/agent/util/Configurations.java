@@ -83,7 +83,7 @@ public class Configurations {
         PROXY_PASSWORD("client.proxy.password"),
         LOG_FILE_PATH("client.logFilePath"),
         SERVER_CN("server.cn"),
-        ADDON_DIR("client.addonDescFile");
+        ADDON_DIR("client.addonDir");
         private final String text;
 
         private ConfigParams(final String text) {

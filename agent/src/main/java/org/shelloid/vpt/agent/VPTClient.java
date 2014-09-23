@@ -29,6 +29,7 @@ import io.netty.handler.codec.http.websocketx.WebSocketFrame;
 import io.netty.util.AttributeKey;
 import io.netty.util.CharsetUtil;
 import java.awt.TrayIcon;
+import java.io.File;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -59,11 +60,10 @@ import org.shelloid.vpt.agent.util.ShelloidPolicyAddon;
 /* @author Harikrishnan */
 public class VPTClient extends SimpleChannelInboundHandler<Object> {
 
-    public static final ConcurrentHashMap<Long, Integer> agentSvcMap = new ConcurrentHashMap();
     public static final ConcurrentHashMap<Integer, PortMapInfo> agentPortMap = new ConcurrentHashMap();
     public static final ConcurrentHashMap<String, ConnectionInfo> agentConnMap = new ConcurrentHashMap();
-    public static final AttributeKey<Boolean> HAS_SENT_REMOTE_CLOSE = AttributeKey.valueOf("HAS_SENT_REMOTE_CLOSE");
-    public boolean deviceMappingRcvd;
+    private static final ConcurrentHashMap<Long, SvcInfo> agentSvcMap = new ConcurrentHashMap();
+    private boolean deviceMappingRcvd;
 
     public VPTClient(WebSocketClientHandshaker handshaker, ICallback<CallbackMessage> callback, AgentReliableMessenger messenger) {
         this.handshaker = handshaker;
@@ -239,7 +239,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
                     case OPEN_PORT: {
                         long portMapId = msg.getPortMapId();
                         int svcPort = msg.getSvcPort();
-                        handleOpenPortMsg(portMapId, svcPort, channel, msg.getAppName(), msg.getPolicyText());
+                        handleOpenPortMsg(portMapId, msg.getSvcHost(), svcPort, channel, msg.getAppName(), msg.getPolicyText());
                         break;
                     }
                     case CLOSE_PORT:
@@ -259,13 +259,13 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         }
     }
 
-    private void handleOpenPortMsg(long portMapId, int svcPort, Channel serverChannel, String appName, String policyText) {
+    private void handleOpenPortMsg(long portMapId, String hostName, int svcPort, Channel serverChannel, String appName, String policyText) {
         String processedOutput = null;
-        if (agentSvcMap.containsKey(portMapId) && (svcPort == agentSvcMap.get(portMapId))) {
+        if (agentSvcMap.containsKey(portMapId) && (svcPort == agentSvcMap.get(portMapId).getPort()) && (hostName.equals(agentSvcMap.get(portMapId).getHost()))) {
             Platform.shelloidLogger.debug("Already received an OPEN_PORT request for port: " + agentSvcMap.get(portMapId));
         } else {
-            agentSvcMap.put(portMapId, svcPort);
-            processedOutput = processPolicyAddon(appName, policyText);
+            agentSvcMap.put(portMapId, new SvcInfo(hostName, svcPort));
+            processedOutput = processPolicyAddon(hostName, svcPort, appName, policyText);
         }
         String msg = "Your port " + svcPort + " is shared with someone.";
         Platform.shelloidLogger.warn(msg);
@@ -273,12 +273,12 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         send(serverChannel, generatePortmapMessage(MessageTypes.PORT_OPENED, portMapId, appName, processedOutput));
     }
     
-    private String processPolicyAddon(String appName, String policyText){
+    private String processPolicyAddon(String host, int port, String appName, String policyText){
         if (policyText != null && policyText.length() > 0 && appName != null && appName.length() > 0){
             ShelloidPolicyAddon addon = App.addons.get(appName);
             if (addon != null) {
                 try {
-                     return addon.process(policyText);
+                     return addon.process(new File (Configurations.get(Configurations.ConfigParams.ADDON_DIR)), host, port, policyText);
                 } catch (ShelloidNonRetriableException ex) {
                     Platform.shelloidLogger.error("Error processig policy text: " + policyText, ex);
                     App.showTrayMessage("Error processig policy. ", TrayIcon.MessageType.ERROR);
@@ -288,12 +288,12 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         return null;
     }
     
-    private void unProcessPolicyAddon(String appName, String processedOptions){
+    private void unProcessPolicyAddon(String host, int port, String appName, String processedOptions){
         if (processedOptions != null && processedOptions.length() > 0 && appName != null && appName.length() > 0){
             ShelloidPolicyAddon addon = App.addons.get(appName);
             if (addon != null) {
                 try {
-                     addon.unprocess(processedOptions);
+                     addon.unprocess(new File (Configurations.get(Configurations.ConfigParams.ADDON_DIR)), host, port, processedOptions);
                 } catch (ShelloidNonRetriableException ex) {
                     Platform.shelloidLogger.error("Error unprocessig policy options: " + processedOptions, ex);
                     App.showTrayMessage("Error unprocessig policy. ", TrayIcon.MessageType.ERROR);
@@ -337,9 +337,11 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
                 }
             }
         }
+        String host = null;
         if (port == -1) {
             try {
-                port = agentSvcMap.get(portMapId);
+                port = agentSvcMap.get(portMapId).getPort();
+                host = agentSvcMap.get(portMapId).getHost();
             } catch (Exception ex) {
                 Platform.shelloidLogger.debug(agentSvcMap.get(portMapId) + " is not an integer (Portmap ID does not exists).");
             }
@@ -349,7 +351,7 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
         if (type.equals(MessageTypes.CLOSE_PORT)) {
             trmsg = "A sharing on port " + port + " has been removed.";
             if (msg.getAppName() != null && msg.getAppName().length() > 0){
-                unProcessPolicyAddon (msg.getAppName(), msg.getCredentialText());
+                unProcessPolicyAddon (host, port, msg.getAppName(), msg.getCredentialText());
             }
             send(channel, generatePortmapMessage(MessageTypes.PORT_CLOSED, portMapId, null, null));
         } else {
@@ -632,13 +634,13 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             Long portMapId = portMap.getPortMapId();
             if (disabled == true) {
                 if (portMap.hasAppName()){
-                    unProcessPolicyAddon (portMap.getAppName(), portMap.getCredentialText());
+                    unProcessPolicyAddon (portMap.getSvcHost(), portMap.getPort(), portMap.getAppName(), portMap.getCredentialText());
                 }
                 send(channel, generatePortmapMessage(MessageTypes.PORT_CLOSED, portMapId, null, null));
                 i.remove();
             } else {
                 int portStr = portMap.getPort();
-                handleOpenPortMsg(portMapId, portStr, channel, portMap.getAppName(), portMap.getPolicyText());
+                handleOpenPortMsg(portMapId, portMap.getSvcHost(), portStr, channel, portMap.getAppName(), portMap.getPolicyText());
             }
         }
     }
@@ -681,15 +683,15 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             }
             try {
                 //this is host-side receiving msg for first time - so set up our connInfo
-                Integer svcPort = agentSvcMap.get(portMapId);
-                if (svcPort != null) {
+                SvcInfo svcInfo = agentSvcMap.get(portMapId);
+                if (svcInfo != null) {
                     Channel newChannel;
                     LocalLink currentLocalink = new LocalLink(this);
                     ptcp = new PseudoTcp(currentLocalink.new PTCPNotifier(), 0);
                     connInfo = new ConnectionInfo(ptcp, 0, true, connTs, System.currentTimeMillis(), false);
                     Bootstrap b = currentLocalink.getClientBootstrap();
                     b.attr(LocalLink.CONNECTION_MAPPING, connInfo);
-                    newChannel = b.connect("localhost", svcPort).sync().channel();
+                    newChannel = b.connect(svcInfo.getHost(), svcInfo.getPort()).sync().channel();
                     Platform.shelloidLogger.info("Establishing a new Connection (id: " + connId + "): " + newChannel);
                     connInfo.setAgentPort(sutils.getLocalPort(newChannel));
                     connInfo.setChannel(newChannel);
@@ -735,4 +737,23 @@ public class VPTClient extends SimpleChannelInboundHandler<Object> {
             throw new IllegalStateException("PTCP is NULL");
         }
     }
+}
+
+class SvcInfo{
+    private final String host;
+    private final int port;
+
+    public SvcInfo(String host, int port) {
+        this.host = host;
+        this.port = port;
+    }
+
+    public String getHost() {
+        return host;
+    }
+
+    public int getPort() {
+        return port;
+    }
+    
 }

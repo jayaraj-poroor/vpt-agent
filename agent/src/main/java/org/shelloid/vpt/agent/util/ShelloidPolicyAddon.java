@@ -5,6 +5,7 @@
  */
 package org.shelloid.vpt.agent.util;
 
+import java.io.File;
 import org.shelloid.common.exceptions.ShelloidNonRetriableException;
 
 /**
@@ -12,6 +13,6 @@ import org.shelloid.common.exceptions.ShelloidNonRetriableException;
  * @author Harikrishnan
  */
 public interface ShelloidPolicyAddon {
-    public String process (String options) throws ShelloidNonRetriableException;
-    public void unprocess(String processedOptions) throws ShelloidNonRetriableException;
+    public String process (File addonDir, String host, int port, String options) throws ShelloidNonRetriableException;
+    public void unprocess(File addonDir, String host, int port, String processedOptions) throws ShelloidNonRetriableException;
 }
